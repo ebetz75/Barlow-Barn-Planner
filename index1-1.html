@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Floor Plan Designer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e9ebee; /* Lighter gray background */
+            overscroll-behavior: none; /* Prevents pull-to-refresh on canvas drag */
+        }
+        .controls-panel {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+        }
+        .canvas-container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            overflow: hidden; /* Clip canvas content */
+            width: 100%;
+            max-width: 900px; /* Max width for the canvas container */
+            margin: auto;
+            display: flex; /* Helps center canvas if it's narrower than container */
+            justify-content: center;
+            align-items: center;
+        }
+        #floorPlanCanvas {
+            display: block;
+            background-color: #f8f9fa; /* Light background for canvas before image load */
+            cursor: grab;
+        }
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out, opacity 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-primary {
+            background-color: #3b82f6; /* Tailwind blue-500 */
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #2563eb; /* Tailwind blue-600 */
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        .btn-secondary {
+            background-color: #6b7280; /* Tailwind gray-500 */
+            color: white;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background-color: #4b5563; /* Tailwind gray-600 */
+        }
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: auto;
+            padding: 24px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .modal-close-btn {
+            background-color: #ef4444;
+            color: white;
+            margin-top: 1rem; /* Adjusted for flex layout */
+        }
+        .modal-close-btn:hover {
+            background-color: #dc2626;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 md:p-6">
+
+    <header class="w-full max-w-5xl mb-6 text-center">
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Floor Plan Layout Tool</h1>
+        <p class="text-md md:text-lg text-gray-600 mt-1">Upload a floor plan image and arrange tables.</p>
+    </header>
+
+    <div class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <aside class="lg:col-span-4 controls-panel">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Controls</h2>
+
+            <div class="mb-5">
+                <label for="floorplan-upload" class="block text-sm font-medium text-gray-700 mb-1">Upload Floor Plan (Image)</label>
+                <input type="file" id="floorplan-upload" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            </div>
+
+            <div class="mb-5">
+                <h3 class="text-md font-medium text-gray-700 mb-2">Add Table</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label for="table-type" class="block text-sm font-medium text-gray-700">Type:</label>
+                        <select id="table-type" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            <option value="rectangle">Rectangle</option>
+                            <option value="round">Round</option>
+                        </select>
+                    </div>
+                    <div id="rect-dims" >
+                        <label for="table-width" class="block text-sm font-medium text-gray-700">Width (ft):</label>
+                        <input type="number" id="table-width" value="6" min="1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                        <label for="table-height" class="block text-sm font-medium text-gray-700 mt-2">Height (ft):</label>
+                        <input type="number" id="table-height" value="3" min="1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div id="round-dims" class="hidden">
+                        <label for="table-radius" class="block text-sm font-medium text-gray-700">Diameter (ft):</label>
+                        <input type="number" id="table-radius" value="4" min="1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <button id="add-table-btn" class="w-full btn btn-primary mt-2">Add Table</button>
+                </div>
+            </div>
+
+            <div class="mb-5">
+                <h3 class="text-md font-medium text-gray-700 mb-2">Add Cover-Up</h3>
+                 <button id="add-cover-btn" class="w-full btn btn-primary bg-gray-400 hover:bg-gray-500 mt-1">Add 14x14 Cover</button>
+            </div>
+            
+            <div id="selected-table-actions" class="mb-5 hidden">
+                <h3 class="text-md font-medium text-gray-700 mb-2">Selected Item</h3>
+                 <button id="delete-table-btn" class="w-full btn bg-red-500 hover:bg-red-600 text-white">Delete Selected</button>
+            </div>
+
+            <div class="mb-5">
+                <button id="set-scale-btn" class="w-full btn btn-secondary">Set Scale</button>
+                <div id="scale-input-section" class="hidden mt-3 p-3 border border-gray-200 rounded-md bg-gray-50">
+                    <p id="scale-instructions" class="text-sm text-gray-600 mb-2">Click two points on the plan to define a known distance.</p>
+                    <label for="real-distance-input" class="block text-sm font-medium text-gray-700">Real Distance (ft):</label>
+                    <input type="number" id="real-distance-input" value="10" min="0.1" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                    <div class="mt-3 flex space-x-2">
+                        <button id="apply-scale-btn" class="flex-1 btn btn-primary text-sm">Apply Scale</button>
+                        <button id="cancel-scale-btn" class="flex-1 btn bg-gray-300 hover:bg-gray-400 text-gray-700 text-sm">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <button id="download-image-btn" class="w-full btn btn-secondary">Download as Image</button>
+                <button id="load-layout-btn" class="w-full btn btn-secondary">Load Layout (From Data)</button>
+            </div>
+        </aside>
+
+        <main class="lg:col-span-8 canvas-container">
+            <canvas id="floorPlanCanvas"></canvas>
+        </main>
+    </div>
+
+    <footer class="w-full max-w-5xl mt-8 text-center text-gray-500 text-sm">
+        <p>&copy; <span id="current-year"></span> Floor Plan Designer. Demo Version.</p>
+    </footer>
+
+    <div id="data-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title" class="text-xl font-semibold mb-3">Layout Data</h3>
+            <textarea id="layout-data-textarea" rows="10" class="w-full p-2 border border-gray-300 rounded-md text-sm" placeholder="Paste your layout JSON data here..."></textarea>
+            <div class="mt-4 flex justify-end space-x-2">
+                <button id="modal-paste-confirm-btn" class="btn btn-primary">Use This Data</button>
+                <button id="modal-close-btn" class="btn modal-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const canvas = document.getElementById('floorPlanCanvas');
+        const ctx = canvas.getContext('2d');
+        const floorplanUpload = document.getElementById('floorplan-upload');
+        const tableTypeSelect = document.getElementById('table-type');
+        const rectDimsDiv = document.getElementById('rect-dims');
+        const roundDimsDiv = document.getElementById('round-dims');
+        const tableWidthInput = document.getElementById('table-width');
+        const tableHeightInput = document.getElementById('table-height');
+        const tableRadiusInput = document.getElementById('table-radius'); // This is Diameter
+        const addTableBtn = document.getElementById('add-table-btn');
+        const addCoverBtn = document.getElementById('add-cover-btn'); // New button for cover-up
+        const downloadImageBtn = document.getElementById('download-image-btn');
+        const loadLayoutBtn = document.getElementById('load-layout-btn');
+        const currentYearSpan = document.getElementById('current-year');
+        const selectedTableActionsDiv = document.getElementById('selected-table-actions');
+        const deleteTableBtn = document.getElementById('delete-table-btn');
+
+        // Scale DOM Elements
+        const setScaleBtn = document.getElementById('set-scale-btn');
+        const scaleInputSection = document.getElementById('scale-input-section');
+        const scaleInstructions = document.getElementById('scale-instructions');
+        const realDistanceInput = document.getElementById('real-distance-input');
+        const applyScaleBtn = document.getElementById('apply-scale-btn');
+        const cancelScaleBtn = document.getElementById('cancel-scale-btn');
+
+        // Modal Elements
+        const dataModal = document.getElementById('data-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const layoutDataTextarea = document.getElementById('layout-data-textarea');
+        const modalCloseBtn = document.getElementById('modal-close-btn');
+        const modalPasteConfirmBtn = document.getElementById('modal-paste-confirm-btn');
+
+        // --- Canvas & Drawing Configuration ---
+        let backgroundImage = null;
+        let layoutItems = []; // Renamed from 'tables' to be more generic
+        let selectedItem = null; // Renamed from 'selectedTable'
+        let isDragging = false;
+        let dragStartX, dragStartY;
+        let offsetX, offsetY; 
+        
+        // --- Scale Configuration ---
+        let currentPixelsPerFoot = 20; 
+        let isSettingScaleMode = false;
+        let scaleLinePoints = []; 
+        let tempScaleLineEnd = null; 
+
+        // --- Canvas Resizing and Initialization ---
+        function resizeCanvasToFitImage() {
+            const container = canvas.parentElement;
+            if (!container) {
+                console.error("Canvas parent container not found for resizing.");
+                canvas.width = 600; 
+                canvas.height = 450;
+                draw();
+                return;
+            }
+
+            let containerWidth = container.clientWidth;
+            if (containerWidth === 0) { 
+                containerWidth = canvas.width || 600; 
+            }
+            
+            if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
+                const imageAspectRatio = backgroundImage.naturalWidth / backgroundImage.naturalHeight;
+                
+                let newCanvasWidth = containerWidth;
+                let newCanvasHeight = newCanvasWidth / imageAspectRatio;
+
+                const maxHeight = window.innerHeight * 0.75; 
+                if (newCanvasHeight > maxHeight) {
+                    newCanvasHeight = maxHeight;
+                    newCanvasWidth = newCanvasHeight * imageAspectRatio;
+                }
+                
+                if (newCanvasWidth > containerWidth) {
+                     newCanvasWidth = containerWidth;
+                     newCanvasHeight = newCanvasWidth / imageAspectRatio;
+                }
+
+                canvas.width = Math.round(newCanvasWidth);
+                canvas.height = Math.round(newCanvasHeight);
+            } else {
+                canvas.width = containerWidth;
+                canvas.height = containerWidth * (3/4); 
+            }
+            draw(); 
+        }
+        
+        function initializeCanvas() {
+            resizeCanvasToFitImage();
+            console.log("Canvas initialized/resized. Dimensions:", canvas.width, "x", canvas.height);
+        }
+
+
+        // --- Drawing Functions ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0 && backgroundImage.naturalHeight > 0) {
+                ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+            } else {
+                let placeholderMessage = 'Upload a floor plan image to begin';
+                if (backgroundImage) { 
+                    placeholderMessage = 'Image loading or error...';
+                }
+                ctx.fillStyle = '#f0f0f0'; 
+                ctx.fillRect(0,0,canvas.width, canvas.height);
+                ctx.fillStyle = '#aaa';
+                ctx.font = '16px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText(placeholderMessage, canvas.width / 2, canvas.height / 2);
+            }
+
+            layoutItems.forEach(item => {
+                // Default style for tables
+                let itemFillColor = item.color || 'rgba(59, 130, 246, 0.7)';
+                let itemStrokeColor = '#1e3a8a';
+                let itemLineWidth = 1;
+
+                if (item.type === 'coverUp') {
+                    itemFillColor = '#E5E7EB'; // Tailwind gray-200 (opaque light gray)
+                    itemStrokeColor = '#D1D5DB'; // Tailwind gray-300 for a subtle border
+                }
+                
+                ctx.fillStyle = itemFillColor;
+                ctx.strokeStyle = itemStrokeColor;
+                ctx.lineWidth = itemLineWidth;
+
+                if (item === selectedItem) {
+                    ctx.strokeStyle = '#fb923c'; 
+                    ctx.lineWidth = 3;
+                }
+
+                if (item.type === 'rectangle' || item.type === 'coverUp') {
+                    ctx.fillRect(item.x, item.y, item.width * currentPixelsPerFoot, item.height * currentPixelsPerFoot);
+                    ctx.strokeRect(item.x, item.y, item.width * currentPixelsPerFoot, item.height * currentPixelsPerFoot);
+                } else if (item.type === 'round') {
+                    const radiusPx = (item.radius / 2) * currentPixelsPerFoot; 
+                    ctx.beginPath();
+                    ctx.arc(item.x + radiusPx, item.y + radiusPx, radiusPx, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            });
+
+            if (isSettingScaleMode) {
+                ctx.save(); 
+                ctx.strokeStyle = '#e11d48'; 
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]); 
+
+                if (scaleLinePoints.length > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(scaleLinePoints[0].x, scaleLinePoints[0].y);
+                    const endPoint = scaleLinePoints.length === 2 ? scaleLinePoints[1] : tempScaleLineEnd;
+                    if (endPoint) {
+                        ctx.lineTo(endPoint.x, endPoint.y);
+                        ctx.stroke();
+                    }
+                    ctx.fillStyle = '#e11d48';
+                    ctx.beginPath();
+                    ctx.arc(scaleLinePoints[0].x, scaleLinePoints[0].y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    if (scaleLinePoints.length === 2) {
+                         ctx.beginPath();
+                         ctx.arc(scaleLinePoints[1].x, scaleLinePoints[1].y, 5, 0, Math.PI * 2);
+                         ctx.fill();
+                    }
+                }
+                 ctx.restore(); 
+            }
+        }
+
+        // --- Event Handlers ---
+        floorplanUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    backgroundImage = new Image(); 
+                    backgroundImage.onload = () => {
+                        if (backgroundImage.naturalWidth === 0 || backgroundImage.naturalHeight === 0) {
+                            backgroundImage = null; 
+                        }
+                        resizeCanvasToFitImage(); 
+                    };
+                    backgroundImage.onerror = (err) => {
+                        backgroundImage = null; 
+                        resizeCanvasToFitImage(); 
+                    };
+                    backgroundImage.src = event.target.result; 
+                };
+                reader.onerror = (err) => {
+                    backgroundImage = null;
+                    resizeCanvasToFitImage(); 
+                };
+                reader.readAsDataURL(file); 
+            }
+        });
+
+        tableTypeSelect.addEventListener('change', () => {
+            if (tableTypeSelect.value === 'rectangle') {
+                rectDimsDiv.classList.remove('hidden');
+                roundDimsDiv.classList.add('hidden');
+            } else {
+                rectDimsDiv.classList.add('hidden');
+                roundDimsDiv.classList.remove('hidden');
+            }
+        });
+
+        addTableBtn.addEventListener('click', () => {
+            const type = tableTypeSelect.value;
+            const newItem = {
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                x: 20, y: 20, type: type,
+                color: `hsla(${Math.random() * 360}, 70%, 60%, 0.7)` // Default color for tables
+            };
+
+            if (type === 'rectangle') {
+                newItem.width = parseFloat(tableWidthInput.value) || 6;
+                newItem.height = parseFloat(tableHeightInput.value) || 3;
+            } else { // round
+                newItem.radius = parseFloat(tableRadiusInput.value) || 4; // Diameter
+            }
+            layoutItems.push(newItem);
+            selectObject(newItem);
+            draw();
+        });
+
+        addCoverBtn.addEventListener('click', () => {
+            const newCover = {
+                id: `cover-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                x: 30, // Initial position slightly different from tables
+                y: 30,
+                type: 'coverUp',
+                width: 14, // Fixed 14ft width
+                height: 14, // Fixed 14ft height
+                // Color is handled in draw() based on type
+            };
+            layoutItems.push(newCover);
+            selectObject(newCover);
+            draw();
+        });
+        
+        deleteTableBtn.addEventListener('click', () => {
+            if (selectedItem) {
+                layoutItems = layoutItems.filter(item => item.id !== selectedItem.id);
+                selectObject(null);
+                draw();
+            }
+        });
+
+        // --- Scale Mode Handlers ---
+        setScaleBtn.addEventListener('click', () => {
+            isSettingScaleMode = true;
+            scaleInputSection.classList.remove('hidden');
+            scaleInstructions.textContent = "Click the first point on the floor plan.";
+            canvas.style.cursor = 'crosshair';
+            scaleLinePoints = [];
+            tempScaleLineEnd = null;
+            selectObject(null); 
+            addTableBtn.disabled = true; 
+            addCoverBtn.disabled = true; // Disable cover button too
+            setTableControlsDisabled(true); 
+            draw();
+        });
+
+        cancelScaleBtn.addEventListener('click', _exitSetScaleMode);
+
+        function _exitSetScaleMode() {
+            isSettingScaleMode = false;
+            scaleInputSection.classList.add('hidden');
+            canvas.style.cursor = 'grab';
+            scaleLinePoints = [];
+            tempScaleLineEnd = null;
+            addTableBtn.disabled = false;
+            addCoverBtn.disabled = false; // Enable cover button
+            setTableControlsDisabled(false); 
+            draw();
+        }
+
+        applyScaleBtn.addEventListener('click', () => {
+            const realDistance = parseFloat(realDistanceInput.value);
+            if (isNaN(realDistance) || realDistance <= 0) {
+                alert('Please enter a valid positive real distance.');
+                return;
+            }
+            if (scaleLinePoints.length !== 2) {
+                alert('Please draw a complete line (two points) on the floor plan.');
+                return;
+            }
+
+            const p1 = scaleLinePoints[0];
+            const p2 = scaleLinePoints[1];
+            const pixelDistance = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+            if (pixelDistance <= 0) {
+                alert('The drawn line has no length. Please draw a valid line.');
+                return;
+            }
+
+            currentPixelsPerFoot = pixelDistance / realDistance;
+            _exitSetScaleMode(); 
+        });
+
+        function setTableControlsDisabled(disabled) {
+            tableTypeSelect.disabled = disabled;
+            tableWidthInput.disabled = disabled;
+            tableHeightInput.disabled = disabled;
+            tableRadiusInput.disabled = disabled;
+        }
+
+
+        // --- Canvas Interaction (Mouse) ---
+        function handleCanvasMouseDown(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (isSettingScaleMode) {
+                if (scaleLinePoints.length === 0) {
+                    scaleLinePoints.push({ x: mouseX, y: mouseY });
+                    scaleInstructions.textContent = "Click the second point.";
+                } else if (scaleLinePoints.length === 1) {
+                    scaleLinePoints.push({ x: mouseX, y: mouseY });
+                    tempScaleLineEnd = null; 
+                    scaleInstructions.textContent = "Enter real distance and click 'Apply Scale'.";
+                }
+                draw();
+                return;
+            }
+
+            let clickedOnItem = false;
+            for (let i = layoutItems.length - 1; i >= 0; i--) { // Iterate backwards for Z-index
+                const item = layoutItems[i];
+                let isInside = false;
+
+                if (item.type === 'rectangle' || item.type === 'coverUp') {
+                    const itemRight = item.x + item.width * currentPixelsPerFoot;
+                    const itemBottom = item.y + item.height * currentPixelsPerFoot;
+                    if (mouseX >= item.x && mouseX <= itemRight && mouseY >= item.y && mouseY <= itemBottom) {
+                        isInside = true;
+                    }
+                } else if (item.type === 'round') { 
+                    const radiusPx = (item.radius / 2) * currentPixelsPerFoot;
+                    const centerX = item.x + radiusPx;
+                    const centerY = item.y + radiusPx;
+                    const dist = Math.sqrt(Math.pow(mouseX - centerX, 2) + Math.pow(mouseY - centerY, 2));
+                    if (dist <= radiusPx) {
+                       isInside = true;
+                    }
+                }
+                
+                if (isInside) {
+                    selectObject(item);
+                    isDragging = true;
+                    offsetX = mouseX - item.x;
+                    offsetY = mouseY - item.y;
+                    canvas.style.cursor = 'grabbing';
+                    clickedOnItem = true;
+                    break; 
+                }
+            }
+            if (!clickedOnItem) {
+                selectObject(null);
+            }
+            draw();
+        }
+        canvas.addEventListener('mousedown', handleCanvasMouseDown);
+
+        function handleCanvasMouseMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (isSettingScaleMode && scaleLinePoints.length === 1) {
+                tempScaleLineEnd = { x: mouseX, y: mouseY };
+                draw();
+                return;
+            }
+
+            if (isDragging && selectedItem) {
+                selectedItem.x = mouseX - offsetX;
+                selectedItem.y = mouseY - offsetY;
+                draw();
+            }
+        }
+        canvas.addEventListener('mousemove', handleCanvasMouseMove);
+
+        canvas.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                if (!isSettingScaleMode) canvas.style.cursor = 'grab';
+                else if (isSettingScaleMode && scaleLinePoints.length < 2) canvas.style.cursor = 'crosshair';
+                draw();
+            }
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            if (isDragging) {
+                isDragging = false;
+                if (!isSettingScaleMode) canvas.style.cursor = 'grab';
+                draw();
+            }
+             if (isSettingScaleMode && scaleLinePoints.length === 1) { 
+                tempScaleLineEnd = null; 
+                draw();
+            }
+        });
+
+        function selectObject(obj) {
+            selectedItem = obj;
+            selectedTableActionsDiv.classList.toggle('hidden', !obj);
+        }
+
+
+        // --- Save/Load Logic ---
+        downloadImageBtn.addEventListener('click', () => {
+            const previouslySelected = selectedItem;
+            if (selectedItem) {
+                selectObject(null); 
+                draw(); 
+            }
+
+            const dataURL = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = 'floor_plan_layout.png'; 
+            document.body.appendChild(link); 
+            link.click();
+            document.body.removeChild(link);
+
+            if (previouslySelected) {
+                selectObject(previouslySelected);
+                draw();
+            }
+        });
+
+        loadLayoutBtn.addEventListener('click', () => {
+            layoutDataTextarea.value = ''; 
+            layoutDataTextarea.placeholder = 'Paste your layout JSON data here...';
+            modalTitle.textContent = "Load Layout Data";
+            modalPasteConfirmBtn.classList.remove('hidden');
+            dataModal.style.display = 'flex';
+        });
+        
+        modalCloseBtn.addEventListener('click', () => {
+            dataModal.style.display = 'none';
+        });
+
+        modalPasteConfirmBtn.addEventListener('click', () => {
+            try {
+                const loadedData = JSON.parse(layoutDataTextarea.value);
+                // Check for the new format (object with pixelsPerFoot and items array)
+                if (typeof loadedData === 'object' && loadedData !== null && Array.isArray(loadedData.layoutItems)) {
+                    layoutItems = loadedData.layoutItems;
+                    currentPixelsPerFoot = parseFloat(loadedData.pixelsPerFoot) || 20; 
+                } 
+                // Check for old format (just an array of items, previously called 'tables')
+                else if (Array.isArray(loadedData)) { 
+                     layoutItems = loadedData;
+                     currentPixelsPerFoot = 20; // Reset to default scale for old format
+                     alert("Layout loaded with default scale (old format). Please set scale if needed.");
+                }
+                else {
+                    alert('Invalid data format. Please paste valid layout JSON.');
+                    return; // Don't proceed if format is wrong
+                }
+                selectObject(null); 
+                resizeCanvasToFitImage(); 
+                dataModal.style.display = 'none';
+
+            } catch (error) {
+                alert('Error parsing JSON data: ' + error.message);
+            }
+        });
+        
+        window.addEventListener('click', (event) => {
+            if (event.target === dataModal) {
+                dataModal.style.display = 'none';
+            }
+        });
+
+        // --- Responsive Canvas & Initial Call ---
+        window.addEventListener('resize', initializeCanvas); 
+        currentYearSpan.textContent = new Date().getFullYear();
+        initializeCanvas(); 
+        tableTypeSelect.dispatchEvent(new Event('change')); 
+
+    </script>
+</body>
+</html>
